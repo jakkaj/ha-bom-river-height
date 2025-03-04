@@ -3,6 +3,9 @@
     "name": "River Height Sensor",
     "version": "1.0.0",
     "documentation": "https://www.home-assistant.io/integrations/river_height",
-    "requirements": [],
+    "requirements": [
+        "beautifulsoup4>=4.11.0",
+        "requests>=2.27.0"
+    ],
     "codeowners": []
 }
