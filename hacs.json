@@ -5,5 +5,6 @@
         "sensor"
     ],
     "homeassistant": "2023.1.0",
-    "hacs": "integration"
+    "hacs": "integration",
+    "country": "AU
 }
