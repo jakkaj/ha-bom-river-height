@@ -2,7 +2,7 @@ import unittest
 from bs4 import BeautifulSoup
 from datetime import timedelta
 from unittest.mock import MagicMock
-from river_height.sensor import (
+from custom_compoents.river_height.sensor import (
     RiverHeightSensor,
     RiverHeightEntity,
     _parse_table,
