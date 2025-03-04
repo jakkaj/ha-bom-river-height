@@ -5,7 +5,7 @@
     "documentation": "https://github.com/jakkaj/ha-bom-river-height",
     "issue_tracker": "https://github.com/jakkaj/ha-bom-river-height/issues",
     "dependencies": [],
-    "config_flow": false,
+    "config_flow": true,
     "iot_class": "cloud_polling",
     "requirements": [
         "beautifulsoup4>=4.11.0",
@@ -13,6 +13,6 @@
     ],
     "codeowners": [
         "@jakkaj"
-    ],
-    "minimum_ha_version": "2023.1.0"
+    ]
+    
 }
