@@ -1,0 +1,8 @@
+{
+    "domain": "river_height",
+    "name": "River Height Sensor",
+    "version": "1.0.0",
+    "documentation": "https://www.home-assistant.io/integrations/river_height",
+    "requirements": [],
+    "codeowners": []
+}

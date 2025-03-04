@@ -1,0 +1,4 @@
+requests>=2.27.0
+voluptuous>=0.13.1
+homeassistant>=2023.1.0
+beautifulsoup4>=4.11.0
