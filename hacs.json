@@ -4,7 +4,6 @@
     "domains": [
         "sensor"
     ],
-    "homeassistant": "2023.1.0",
-    "hacs": "integration",
+    "homeassistant": "2023.1.0",    
     "country": "AU"
 }
