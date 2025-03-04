@@ -1,0 +1,30 @@
+# Example Home Assistant configuration for River Height sensor
+# Place this in your Home Assistant configuration.yaml file
+
+# Basic River Height Sensor Configuration (single sensor with attributes)
+# River Height Sensor Configuration
+sensor:
+  - platform: river_height
+    url: "ftp://ftp.bom.gov.au/anon/gen/fwo/IDQ60005.html"
+    name: "Coomera River"
+    unit_of_measurement: "m"
+    station_filter: "Coomera R at Oxenford Weir"
+    create_additional_sensors: true
+
+# Advanced example with multiple separate sensors for each field
+# sensor:
+#   - platform: river_height
+#     url: "ftp://ftp.bom.gov.au/anon/gen/fwo/IDQ60005.html" 
+#     name: "Coomera River"
+#     unit_of_measurement: "m"
+#     station_filter: "Coomera R at Oxenford Weir"
+#     create_additional_sensors: true
+#     # Optional: customize the update interval (default is 30 minutes)
+#     scan_interval: 00:30:00
+#
+# This will create the following sensors:
+# - sensor.coomera_river (the height value)
+# - sensor.coomera_river_station (station name)
+# - sensor.coomera_river_last_updated (timestamp)
+# - sensor.coomera_river_trend (rising/falling/steady)
+# - sensor.coomera_river_status (status information)

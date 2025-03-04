@@ -4,42 +4,71 @@ from urllib.error import URLError
 from datetime import timedelta
 from bs4 import BeautifulSoup, Comment
 from dataclasses import dataclass
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict, Any
 
 import voluptuous as vol
 
 # Import statements modified to make the code runnable outside Home Assistant when __name__ == "__main__"
 try:
-    from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
-    from homeassistant.const import CONF_NAME, CONF_UNIT_OF_MEASUREMENT
+    from homeassistant.components.sensor import (
+        PLATFORM_SCHEMA,
+        SensorEntity,
+        SensorDeviceClass,
+        SensorStateClass,
+    )
+    from homeassistant.const import (
+        CONF_NAME,
+        CONF_UNIT_OF_MEASUREMENT,
+        CONF_SCAN_INTERVAL,
+        STATE_UNKNOWN,
+    )
     import homeassistant.helpers.config_validation as cv
     from homeassistant.util import Throttle
+    from homeassistant.helpers.entity import Entity
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+    from homeassistant.helpers.update_coordinator import (
+        CoordinatorEntity,
+        DataUpdateCoordinator,
+    )
     IN_HA = True
 except ImportError:
     # Mock classes for standalone execution
     PLATFORM_SCHEMA = object()
-
     class SensorEntity:
         pass
     CONF_NAME = "name"
     CONF_UNIT_OF_MEASUREMENT = "unit_of_measurement"
+    CONF_SCAN_INTERVAL = "scan_interval"
+    STATE_UNKNOWN = "unknown"
+    SensorDeviceClass = object()
+    SensorStateClass = object()
     cv = object()
-
     class Throttle:
         def __init__(self, interval):
             self.interval = interval
-
         def __call__(self, func):
             return func
+    Entity = object()
+    CoordinatorEntity = object()
+    DataUpdateCoordinator = object()
+    class HomeAssistant:
+        pass
+    class AddEntitiesCallback:
+        pass
+    ConfigType = Dict
+    DiscoveryInfoType = Dict
     IN_HA = False
 
 _LOGGER = logging.getLogger(__name__)
 
 CONF_URL = "url"
 CONF_STATION_FILTER = "station_filter"
+CONF_CREATE_ADDITIONAL_SENSORS = "create_additional_sensors"
 
-# We poll every 30 minutes, as specified
-SCAN_INTERVAL = timedelta(minutes=30)
+# Default scan interval is 30 minutes
+DEFAULT_SCAN_INTERVAL = timedelta(minutes=30)
 
 # Define the YAML schema for this platform
 if IN_HA:
@@ -48,24 +77,51 @@ if IN_HA:
         vol.Optional(CONF_NAME, default="River Height"): cv.string,
         vol.Optional(CONF_UNIT_OF_MEASUREMENT, default="m"): cv.string,
         vol.Optional(CONF_STATION_FILTER): cv.string,
+        vol.Optional(CONF_CREATE_ADDITIONAL_SENSORS, default=False): cv.boolean,
+        vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): cv.time_period,
     })
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
+def setup_platform(
+    hass: HomeAssistant,
+    config: ConfigType,
+    add_entities: AddEntitiesCallback,
+    discovery_info: Optional[DiscoveryInfoType] = None,
+) -> None:
     """Set up the River Height sensor platform."""
     url = config[CONF_URL]
     name = config[CONF_NAME]
     unit_of_measurement = config[CONF_UNIT_OF_MEASUREMENT]
     station_filter = config.get(CONF_STATION_FILTER)
+    create_additional_sensors = config.get(CONF_CREATE_ADDITIONAL_SENSORS, False)
+    scan_interval = config.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
 
     # Verify the URL starts with ftp://
     if not url.startswith('ftp://'):
         _LOGGER.error("Only FTP URLs are supported (starting with ftp://)")
         return
 
-    sensor = RiverHeightSensor(
-        name, url, unit_of_measurement, station_filter)
-    add_entities([sensor], True)
+    if IN_HA and create_additional_sensors:
+        # Create a coordinator that will be used by all sensors
+        coordinator = RiverHeightDataCoordinator(
+            hass, url, station_filter, scan_interval
+        )
+
+        # Create entities
+        entities = []
+        entities.append(RiverHeightCoordinatorSensor(coordinator, name, unit_of_measurement))
+        entities.append(RiverStationSensor(coordinator, f"{name} Station", None))
+        entities.append(RiverTimestampSensor(coordinator, f"{name} Last Updated", None))
+        entities.append(RiverTrendSensor(coordinator, f"{name} Trend", None))
+        entities.append(RiverStatusSensor(coordinator, f"{name} Status", None))
+        
+        # Add entities to Home Assistant
+        add_entities(entities, True)
+    else:
+        # Create the legacy single sensor
+        sensor = RiverHeightSensor(
+            name, url, unit_of_measurement, station_filter)
+        add_entities([sensor], True)
 
 
 @dataclass
@@ -146,6 +202,178 @@ def _parse_table(html_content: str, return_river_data: bool = False) -> Union[Li
                     rows.append(row_data)
 
     return rows
+
+
+class RiverHeightDataCoordinator(DataUpdateCoordinator):
+    """Class to manage fetching BOM river data."""
+
+    def __init__(self, hass, url, station_filter, update_interval):
+        """Initialize the coordinator."""
+        super().__init__(
+            hass,
+            _LOGGER,
+            name="BOM River Height",
+            update_interval=update_interval,
+        )
+        self.url = url
+        self.station_filter = station_filter
+        self.rivers = []
+        self.selected_river = None
+
+    async def _async_update_data(self):
+        """Fetch data from BOM."""
+        try:
+            # Use a separate method for the actual data fetching
+            return await self.hass.async_add_executor_job(self._fetch_river_data)
+        except Exception as err:
+            _LOGGER.error("Error updating river height data: %s", err)
+            raise
+
+    def _fetch_river_data(self):
+        """Fetch river height data from BOM."""
+        try:
+            html_content = self._fetch_url_content(self.url, timeout=10)
+
+            if not html_content:
+                _LOGGER.error("Error fetching river height data from %s", self.url)
+                return None
+
+            # Parse all rivers from the table
+            self.rivers = _parse_table(html_content, return_river_data=True)
+
+            if not self.rivers:
+                _LOGGER.warning("No river data found at %s", self.url)
+                return None
+
+            # If we have a station filter, try to find that specific river
+            if self.station_filter:
+                for river in self.rivers:
+                    if river.title_matches(self.station_filter):
+                        self.selected_river = river
+                        return river
+                _LOGGER.warning(
+                    "Could not find river matching filter: %s", self.station_filter)
+                return None
+            else:
+                # Default to first river if no filter specified
+                self.selected_river = self.rivers[0]
+                return self.rivers[0]
+        except Exception as err:
+            _LOGGER.error(
+                "Unexpected error processing river height data from %s: %s", self.url, err)
+            return None
+
+    def _fetch_url_content(self, url, timeout=10):
+        """Fetch content from FTP URL."""
+        try:
+            if not url.startswith('ftp://'):
+                _LOGGER.error("Only FTP URLs are supported: %s", url)
+                return None
+
+            with urlopen(url, timeout=timeout) as response:
+                return response.read().decode('utf-8')
+        except URLError as e:
+            _LOGGER.error("Error fetching FTP URL %s: %s", url, str(e))
+            return None
+
+
+class RiverHeightBaseSensor(CoordinatorEntity, SensorEntity):
+    """Base class for river height sensors."""
+
+    def __init__(self, coordinator, name, unit_of_measurement):
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._name = name
+        self._unit_of_measurement = unit_of_measurement
+        self._attr_unique_id = f"{name.lower().replace(' ', '_')}"
+
+    @property
+    def name(self):
+        """Return the name of the sensor."""
+        return self._name
+
+    @property
+    def available(self):
+        """Return if entity is available."""
+        return self.coordinator.last_update_success and self.coordinator.data is not None
+
+
+class RiverHeightCoordinatorSensor(RiverHeightBaseSensor):
+    """Implementation of the river height sensor."""
+    
+    @property
+    def native_value(self):
+        """Return the river height."""
+        if self.coordinator.data:
+            return self.coordinator.data.height
+        return None
+
+    @property
+    def native_unit_of_measurement(self):
+        """Return the unit of measurement."""
+        return self._unit_of_measurement
+    
+    @property
+    def extra_state_attributes(self):
+        """Return extra attributes from the river height data."""
+        if not self.coordinator.data:
+            return {}
+            
+        attrs = {
+            "station_name": self.coordinator.data.station_name,
+            "timestamp": self.coordinator.data.timestamp,
+            "trend": self.coordinator.data.trend,
+            "status": self.coordinator.data.status,
+        }
+        
+        if self.coordinator.data.metadata:
+            attrs["metadata"] = self.coordinator.data.metadata
+            
+        return attrs
+
+
+class RiverStationSensor(RiverHeightBaseSensor):
+    """Implementation of the river station name sensor."""
+    
+    @property
+    def native_value(self):
+        """Return the river station name."""
+        if self.coordinator.data:
+            return self.coordinator.data.station_name
+        return None
+
+
+class RiverTimestampSensor(RiverHeightBaseSensor):
+    """Implementation of the river timestamp sensor."""
+    
+    @property
+    def native_value(self):
+        """Return the timestamp of the river data."""
+        if self.coordinator.data:
+            return self.coordinator.data.timestamp
+        return None
+
+
+class RiverTrendSensor(RiverHeightBaseSensor):
+    """Implementation of the river trend sensor."""
+    
+    @property
+    def native_value(self):
+        """Return the river trend."""
+        if self.coordinator.data:
+            return self.coordinator.data.trend
+        return None
+
+
+class RiverStatusSensor(RiverHeightBaseSensor):
+    """Implementation of the river status sensor."""
+    
+    @property
+    def native_value(self):
+        """Return the river status."""
+        if self.coordinator.data:
+            return self.coordinator.data.status
+        return None
 
 
 class RiverHeightSensor(SensorEntity):
@@ -247,7 +475,7 @@ class RiverHeightSensor(SensorEntity):
             _LOGGER.error("Error fetching FTP URL %s: %s", url, str(e))
             return None
 
-    @Throttle(SCAN_INTERVAL)
+    @Throttle(DEFAULT_SCAN_INTERVAL)
     def update(self):
         """
         Fetch and parse the latest data.
@@ -292,6 +520,7 @@ class RiverHeightSensor(SensorEntity):
 
 if __name__ == "__main__":
     import sys
+    import time
 
     # Configure logging
     logging.basicConfig(
@@ -306,6 +535,8 @@ if __name__ == "__main__":
     print(f"Fetching river height data from {url}")
     print(f"Looking for station: {station_filter}")
 
+    # Demo both modes: legacy sensor and multi-sensor coordinator
+    print("\n===== LEGACY SINGLE SENSOR MODE =====")
     # Create and initialize the sensor
     sensor = RiverHeightSensor(
         name="River Height Test",
@@ -334,3 +565,54 @@ if __name__ == "__main__":
         print("\nAll available stations:")
         for i, river in enumerate(sensor.all_rivers, 1):
             print(f"{i}. {river.station_name} - Height: {river.height}m")
+    
+    print("\n===== MULTI-SENSOR COORDINATOR MODE =====")
+    # Create a mock hass object for testing 
+    class MockHass:
+        def async_add_executor_job(self, func):
+            return func()
+
+    # For testing purposes, we need to mock some coordinator properties
+    class MockCoordinator(RiverHeightDataCoordinator):
+        def __init__(self, hass, url, station_filter, update_interval):
+            self.hass = hass
+            self.url = url
+            self.station_filter = station_filter
+            self.update_interval = update_interval
+            self.data = None
+            self.rivers = []
+            self.selected_river = None
+            self.name = "BOM River Height"
+            self.logger = _LOGGER
+            self.last_update_success = False
+    
+    # Create coordinator with the same data
+    coordinator = MockCoordinator(
+        MockHass(),
+        url,
+        station_filter,
+        DEFAULT_SCAN_INTERVAL
+    )
+    
+    # Manually trigger data fetch and set the data
+    river_data = coordinator._fetch_river_data()
+    coordinator.data = river_data
+    coordinator.last_update_success = river_data is not None
+    
+    if coordinator.data:
+        # Create all the sensor types
+        height_sensor = RiverHeightCoordinatorSensor(coordinator, "River Height", "m")
+        station_sensor = RiverStationSensor(coordinator, "River Station", None)
+        timestamp_sensor = RiverTimestampSensor(coordinator, "River Timestamp", None)
+        trend_sensor = RiverTrendSensor(coordinator, "River Trend", None)
+        status_sensor = RiverStatusSensor(coordinator, "River Status", None)
+        
+        # Display all sensor values
+        print(f"\nFound matching river station with multiple sensors:")
+        print(f"Height: {height_sensor.native_value} m")
+        print(f"Station: {station_sensor.native_value}")
+        print(f"Timestamp: {timestamp_sensor.native_value}")
+        print(f"Trend: {trend_sensor.native_value}")
+        print(f"Status: {status_sensor.native_value}")
+    else:
+        print(f"\nNo data found for {station_filter} using coordinator")
