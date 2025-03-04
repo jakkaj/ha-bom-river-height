@@ -23,7 +23,7 @@ A Home Assistant integration that provides real-time river height data from the 
    - Go to HACS → Integrations
    - Click on the three dots in the top right corner
    - Select "Custom repositories"
-   - Add `https://github.com/USERNAME/ha-bom-river-height` as a new repository
+   - Add `https://github.com/jakkaj/ha-bom-river-height` as a new repository
    - Category: Integration
 3. Click "Install"
 4. Restart Home Assistant
@@ -33,7 +33,7 @@ A Home Assistant integration that provides real-time river height data from the 
 1. Copy the `river_height` directory to your Home Assistant's `custom_components` directory:
    ```bash
    cd /config/custom_components
-   git clone https://github.com/USERNAME/ha-bom-river-height.git
+   git clone https://github.com/jakkaj/ha-bom-river-height.git
    mv ha-bom-river-height/river_height .
    rm -rf ha-bom-river-height
    ```
