@@ -3,8 +3,7 @@
     "render_readme": true,
     "domains": [
         "sensor"
-    ],
-    "hacs": "integration",   
+    ],    
     "country": "AU",
-    "version": "1.0.0"
+    
 }
