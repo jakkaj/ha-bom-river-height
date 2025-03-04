@@ -1,60 +1,8 @@
-# Example Home Assistant configuration for River Height sensor
-# Place this in your Home Assistant configuration.yaml file
+# Example configuration for BOM River Height sensor
+# Place this configuration in your configuration.yaml file
 
-# River Height Sensor Configuration
 sensor:
   - platform: river_height
     url: "ftp://ftp.bom.gov.au/anon/gen/fwo/IDQ60005.html"
-    name: "Coomera River"
-    unit_of_measurement: "m"
-    station_filter: "Coomera R at Oxenford Weir"
-    # Optional: customize the update interval (default is 30 minutes)
-    scan_interval: 00:30:00
-
-# This will create a sensor entity with the following attributes:
-# - state: the current river height value in meters
-# - attributes:
-#   - station_name: name of the monitoring station
-#   - timestamp: when the reading was taken
-#   - trend: whether the river level is rising, falling, or steady
-#   - status: any status information about the reading
-
-# You can access these attributes in templates like:
-# {{ states('sensor.coomera_river') }}         # The height value
-# {{ state_attr('sensor.coomera_river', 'trend') }}
-# {{ state_attr('sensor.coomera_river', 'status') }}
-
-# Optional: Create template sensors for individual attributes
-template:
-  - sensor:
-      - name: "Coomera River Trend"
-        unique_id: coomera_river_trend
-        state: "{{ state_attr('sensor.coomera_river', 'trend') }}"
-        icon: "mdi:trending-up"
-        
-      - name: "Coomera River Status"
-        unique_id: coomera_river_status
-        state: "{{ state_attr('sensor.coomera_river', 'status') }}"
-        icon: "mdi:information"
-        
-      - name: "Coomera River Last Updated"
-        unique_id: coomera_river_last_updated
-        state: "{{ state_attr('sensor.coomera_river', 'timestamp') }}"
-        icon: "mdi:clock-outline"
-
-# Example automation using the sensor
-automation:
-  - alias: "River Height Alert"
-    description: "Send notification when river height exceeds threshold"
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.coomera_river
-        above: 1.5  # Adjust this threshold as needed
-    action:
-      - service: notify.notify
-        data:
-          title: "River Height Warning"
-          message: >
-            Coomera River height is {{ states('sensor.coomera_river') }}m 
-            ({{ state_attr('sensor.coomera_river', 'trend') }})
-            Status: {{ state_attr('sensor.coomera_river', 'status') }}
+    name: "Brisbane River"
+    station_filter: "Brisbane R at City Gauge"
